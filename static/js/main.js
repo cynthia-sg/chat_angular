@@ -2,9 +2,162 @@
 // Author: Sergio Castaño Arteaga
 // Email: sergio.castano.arteaga@gmail.com
 
-(function(){
+(function($){
 
     var debug = false;
+
+    var chatApp = angular.module("chatApp", []);
+    chatApp.config(function($interpolateProvider) {
+        $interpolateProvider.startSymbol("{[{");
+        $interpolateProvider.endSymbol("}]}");
+    });
+
+    chatApp.controller('ChatListCtrl', function ($scope, $location) {
+        $scope.rooms = [{
+                    "room": "MainRoom",
+                    "active": "active",
+                    "users": [{
+                        "room": "MainRoom",
+                        "username": "ServerBot",
+                        "id": 0
+                    }],
+                    "messages": [{
+                        "room": "MainRoom",
+                        "username": "ServerBot",
+                        "msg": "----- Welcome to the chat server ----"
+                    }]
+                }];
+
+        var searchObject = $location.search();
+        if (searchObject.room) {
+            socket.emit('subscribe', {'rooms': [searchObject.room]}); // http://localhost:8888/index.html#?room=abc
+        }         
+
+        $scope.addNewRoom = function(room) {
+            if ($scope.checkIfRoomNotExists(room.room)) {
+                $scope.rooms.push(room);
+            }
+        };
+
+        $scope.removeRoom = function(roomToRemove) {
+            $.each($scope.rooms, function(i){
+                if ($scope.rooms[i].room == roomToRemove) {
+                    $scope.rooms.splice(i,1);
+                    return false;
+                }
+            });
+        };
+
+        $scope.checkIfRoomNotExists = function(newRoom) {
+            var roomNotExists = true;
+            $scope.rooms.forEach(function(room) {
+                if (room.room == newRoom) {
+                    roomNotExists = false;
+                }
+            });
+            return roomNotExists;
+        };
+
+        $scope.userNotInRoom = function(user, users) {
+            var userNotInRoom = true;
+            users.forEach(function(userInList) {
+                if (userInList.id === user.id) {
+                    userNotInRoom = false;
+                }
+            });
+            return userNotInRoom;
+        };
+
+        $scope.addMessage = function(msg) {
+            $scope.rooms.forEach(function(room) {
+                if (room.room == msg.room) {
+                    room.messages.push(msg);
+                }
+            });
+
+            // Scroll bottom
+            var messagesContainer = $("#" + msg.room + " .well div");
+            messagesContainer.scrollTop(messagesContainer.height());
+        };
+
+        $scope.addUser = function(user) {
+            $scope.rooms.forEach(function(room) {
+                if (room.room == user.room) {
+                    if ($scope.userNotInRoom(user, room.users)) {
+                        room.users.push(user);
+                    }
+                }
+            });
+        };
+
+        $scope.removeUser = function(userToRemove) {
+            $scope.rooms.forEach(function(room) {
+                if (room.room == userToRemove.room) {
+                    $.each(room.users, function(i){
+                        if (room.users[i].id == userToRemove.id) {
+                            room.users.splice(i,1);
+                            return false;
+                        }
+                    });
+                }
+            });
+        };
+
+        $scope.updateNickname = function(userToUpdate) {
+            $scope.rooms.forEach(function(room) {
+                if (room.room == userToUpdate.room) {
+                    $.each(room.users, function(i){
+                        if (room.users[i].id == userToUpdate.id) {
+                            room.users[i].username = userToUpdate.newUsername;
+                        }
+                    });
+                }
+            });
+        };
+
+        $scope.addUsers = function(users) {
+            $scope.rooms.forEach(function(room) {
+                room.users = [];
+            });
+            users.forEach(function(user) {
+                $scope.addUser(user);
+            });
+        };
+    });
+
+    var scope;
+
+    function getScope() {
+        scope = angular.element(document.getElementById("ChatListCtrl")).scope();       
+    }
+
+    function createRoom(roomName) {
+        if (scope) {
+            scope.$apply(function() {
+                scope.addNewRoom({
+                    "room": roomName,
+                    "active": "",
+                    "users": [{
+                        "room": roomName,
+                        "username": "ServerBot",
+                        "id": 0
+                    }],
+                    "messages": [{
+                        "room": roomName,
+                        "username": "ServerBot",
+                        "msg": "----- Welcome to the chat server ----"
+                    }]
+                });
+            });  
+
+            // Get users connected to room
+            socket.emit('getUsersInRoom', {'room':roomName});
+
+            $("#" + roomName + "_tab a").click();            
+        } else {
+            getScope();
+        }
+    }
 
     // ***************************************************************************
     // Socket.io events
@@ -14,10 +167,9 @@
 
     // Connection established
     socket.on('connected', function (data) {
-        console.log(data);
 
-        // Get users connected to mainroom
-        socket.emit('getUsersInRoom', {'room':'MainRoom'});
+        // Get scope - Angular
+        getScope();       
 
         if (debug) {
             // Subscription to rooms
@@ -49,10 +201,7 @@
     // Subscription to room confirmed
     socket.on('subscriptionConfirmed', function(data) {
         // Create room space in interface
-        if (!roomExists(data.room)) {
-            addRoomTab(data.room);
-            addRoom(data.room);
-        }
+        createRoom(data.room);
 
         // Close modal if opened
         $('#modal_joinroom').modal('hide');
@@ -61,17 +210,16 @@
     // Unsubscription to room confirmed
     socket.on('unsubscriptionConfirmed', function(data) {
         // Remove room space in interface
-        if (roomExists(data.room)) {
-            removeRoomTab(data.room);
-            removeRoom(data.room);
-        }
+        scope.$apply(function() {
+            scope.removeRoom(data.room);
+        });
     });
 
     // User joins room
     socket.on('userJoinsRoom', function(data) {
         console.log("userJoinsRoom: %s", JSON.stringify(data));
         // Log join in conversation
-        addMessage(data);
+        addMessage(data);  
     
         // Add user to connected users list
         addUser(data);
@@ -91,20 +239,23 @@
     socket.on('newMessage', function (data) {
         console.log("newMessage: %s", JSON.stringify(data));
         addMessage(data);
-
-        // Scroll down room messages
-        var room_messages = '#'+data.room+' #room_messages';
-        $(room_messages).animate({
-            scrollTop: $(room_messages).height()
-        }, 300);
     });
 
     // Users in room received
     socket.on('usersInRoom', function(data) {
         console.log('usersInRoom: %s', JSON.stringify(data));
-        _.each(data.users, function(user) {
-            addUser(user);
+
+        // Add ServerBot user at first
+        data.users.unshift({
+            id: 0,
+            username: "ServerBot",
+            room: data.room
         });
+
+        scope.$apply(function() {
+            scope.addUsers(data.users);
+        });
+        
     });
 
     // User nickname updated
@@ -118,104 +269,33 @@
     });
 
     // ***************************************************************************
-    // Templates and helpers
+    // Helpers
     // ***************************************************************************
-    
-    var templates = {};
-    var getTemplate = function(path, callback) {
-        var source;
-        var template;
- 
-        // Check first if we've the template cached
-        if (_.has(templates, path)) {
-            if (callback) callback(templates[path]);
-        // If not we get and compile it
-        } else {
-            $.ajax({
-                url: path,
-                success: function(data) {
-                    source = data;
-                    template = Handlebars.compile(source);
-                    // Store compiled template in cache
-                    templates[path] = template;
-                    if (callback) callback(template);
-                }
-            });
-        }
-    }
-
-    // Add room tab
-    var addRoomTab = function(room) {
-        getTemplate('js/templates/room_tab.handlebars', function(template) {
-            $('#rooms_tabs').append(template({'room':room}));
-        });
-    };
-
-    // Remove room tab
-    var removeRoomTab = function(room) {
-        var tab_id = "#"+room+"_tab";
-        $(tab_id).remove();
-    };
-
-    // Add room
-    var addRoom = function(room) {
-        getTemplate('js/templates/room.handlebars', function(template) {
-            $('#rooms').append(template({'room':room}));
-        
-            // Toogle to created room
-            var newroomtab = '[href="#'+room+'"]';
-            $(newroomtab).click();
-
-            // Get users connected to room
-            socket.emit('getUsersInRoom', {'room':room});
-        });
-    };
-    
-    // Remove room
-    var removeRoom = function(room) {
-        var room_id = "#"+room;
-        $(room_id).remove();
-    };
 
     // Add message to room
     var addMessage = function(msg) {
-        getTemplate('js/templates/message.handlebars', function(template) {
-            var room_messages = '#'+msg.room+' #room_messages';
-            $(room_messages).append(template(msg));
-        });
+        scope.$apply(function() {
+            scope.addMessage(msg);
+        });  
     };
     
     // Add user to connected users list
     var addUser = function(user) {
-        getTemplate('js/templates/user.handlebars', function(template) {
-            var room_users = '#'+user.room+' #room_users';
-            // Add only if it doesn't exist in the room
-            var user_badge = '#'+user.room+' #'+user.id;
-            if (!($(user_badge).length)) {
-                $(room_users).append(template(user));
-            }
-        });
-    }
+        scope.$apply(function() {
+            scope.addUser(user);
+        });  
+    };
 
     // Remove user from connected users list
     var removeUser = function(user) {
-        var user_badge = '#'+user.room+' #'+user.id;
-        $(user_badge).remove();
-    };
-
-    // Check if room exists
-    var roomExists = function(room) {
-        var room_selector = '#'+room;
-        if ($(room_selector).length) {
-            return true;
-        } else {
-            return false;
-        }
+        scope.$apply(function() {
+            scope.removeUser(user);
+        }); 
     };
 
     // Get current room
     var getCurrentRoom = function() {
-        return $('li[id$="_tab"][class="active"]').text();
+        return $('li[id$="_tab"][class="active"]').text().trim();
     };
 
     // Get message text from input field
@@ -236,13 +316,18 @@
     var getNickname = function() {
         var nickname = $('#nickname').val();
         $('#nickname').val("");
-        return nickname;
+        if (nickname != "") {
+            return nickname;
+        } else {
+            return false;
+        }
     };
 
-    // Update nickname in badges
+    // Update nickname in badges (all collections)
     var updateNickname = function(data) {
-        var badges = '#'+data.room+' #'+data.id;
-        $(badges).text(data.newUsername);
+        scope.$apply(function() {
+            scope.updateNickname(data);
+        });   
     };
 
     // ***************************************************************************
@@ -254,6 +339,13 @@
         eventObject.preventDefault();
         if ($('#message_text').val() != "") {
             socket.emit('newMessage', {'room':getCurrentRoom(), 'msg':getMessageText()});
+        }
+    });
+
+    // Click button "Join room" to press Return key
+    $('#room_name').keyup(function(event){
+        if( event.keyCode == 13){
+            $('#b_join_room').click();
         }
     });
 
@@ -280,11 +372,21 @@
     // Set nickname
     $('#b_set_nickname').click(function(eventObject) {
         eventObject.preventDefault();
-        socket.emit('setNickname', {'username':getNickname()});
+        var newName = getNickname();
+        if (newName) {
+            socket.emit('setNickname', {'username':newName});
+        }
 
         // Close modal if opened
         $('#modal_setnick').modal('hide');
     });
 
-})();
+    // Click button "Set nickname" to press Return key
+    $('#nickname').keyup(function(event){
+        if( event.keyCode == 13){
+            $('#b_set_nickname').click();
+        }
+    });
+
+})(jQuery);
 

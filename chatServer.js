@@ -187,7 +187,7 @@ io.sockets.on('connection', function(socket) {
                 usersInRoom.push({'room':data.room, 'username':obj.username, 'id':obj.socketID});
                 // When we've finished with the last one, notify user
                 if (usersInRoom.length == socketsInRoom.length) {
-                    socket.emit('usersInRoom', {'users':usersInRoom});
+                    socket.emit('usersInRoom', {'users':usersInRoom, 'room': data.room});
                 }
             });
         } 
