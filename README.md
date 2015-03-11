@@ -7,6 +7,8 @@ Built with:
 
 This is just a <strong>proof of concept</strong> of what could be done with these technologies.
 
+Fork of http://github.com/tegioz/chat.git
+
 
 ### Requires
 
