@@ -3,7 +3,7 @@
 Built with:
 
   - <strong>Server side:</strong> Node.js, Socket.io, Express, Redis
-  - <strong>Client side:</strong> HTML5 Boilerplate, Bootstrap, Handlebars and jQuery
+  - <strong>Client side:</strong> HTML5 Boilerplate, Bootstrap, AngularJS  and jQuery
 
 This is just a <strong>proof of concept</strong> of what could be done with these technologies.
 
